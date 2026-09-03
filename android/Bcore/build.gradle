@@ -1,0 +1,101 @@
+ext.enableBlackReflection = (rootProject.ext.has("enableBlackReflection") ? rootProject.ext.enableBlackReflection : true)
+apply plugin: 'com.android.library'
+
+android {
+    ndkVersion rootProject.ext.ndkVersionWanted
+    // ✅ AGP 8+ এ namespace MUST
+    namespace "com.albarakah.loyaltyapp.bcore"
+
+    // ⚠️ তোমারটা 28 ছিল। AGP 8 / নতুন লাইব্রেরি গুলোর সাথে ঝামেলা কমাতে 34 রাখা ভালো।
+    // যদি তোমার প্রজেক্টে rootProject.ext.compileSdkVersion থাকে, চাইলে সেটা ব্যবহার করতে পারো।
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 21
+        // আগের মতোই রাখলাম—তোমার rootProject.ext.targetSdkVersion যেটা সেট করা আছে সেটা চলবে
+        targetSdkVersion rootProject.ext.targetSdkVersion
+
+        versionCode 1
+        versionName "1.0"
+
+        consumerProguardFiles "consumer-rules.pro"
+
+        ndk {
+            // 设置支持的SO库架构
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('./src/main/cpp/CMakeLists.txt')
+        }
+    }
+
+    // ❌ AGP 8 এ dexOptions obsolete (warning দিবে/ignore হবে)
+    // dexOptions {
+    //     preDexLibraries false
+    //     maxProcessCount 8
+    //     javaMaxHeapSize "4g"
+    // }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // ❌ aaptOptions obsolete (AGP নতুন ভার্সনে কাজ নাও করতে পারে)
+    // aaptOptions {
+    //     cruncherEnabled = false
+    //     useNewCruncher = false
+    // }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    // ✅ lintOptions পুরনো; AGP 8 এ lint {} ব্যবহার করা ভালো
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+        warningsAsErrors false
+        disable "UnusedResources", "RestrictedApi"
+        textOutput file("stdout")
+        textReport false
+        // আগের check লিস্টটা চাইলে এখানে mapping করা যায়,
+        // তবে এখনই build ঠিক করতে এটা জরুরি না।
+    }
+
+    ndkVersion '27.0.12077973'
+}
+
+tasks.withType(Javadoc) {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.addStringOption('encoding', 'UTF-8')
+    options.addStringOption('charSet', 'UTF-8')
+}
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar", "*.aar"])
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+
+    implementation 'me.weishu:free_reflection:3.0.1'
+    if (rootProject.ext.enableBlackReflection) {
+        implementation "com.github.CodingGay.BlackReflection:core:${rootProject.ext.blackReflectionVersion}"
+    }
+
+    // Submodules
+    // implementation project(':Bcore:black-fake')
+// implementation project(':Bcore:black-hook')
+// implementation project(':android-mirror')
+// implementation project(':Bcore:pine-core')
+// implementation project(':Bcore:pine-xposed')
+// implementation project(':Bcore:pine-xposed-res')
+}

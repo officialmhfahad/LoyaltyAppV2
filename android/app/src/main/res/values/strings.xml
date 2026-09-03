@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Al Barakah Loyalty</string>
+    <string name="title_activity_main">Al Barakah Loyalty</string>
+    <string name="package_name">com.albarakah.loyaltyapp</string>
+    <string name="custom_url_scheme">com.albarakah.loyaltyapp</string>
+
+    <string name="server_client_id">56277183954-6oknis8bhji6cjyv2iokk9a6q98vhpt2.apps.googleusercontent.com</string>
+</resources>

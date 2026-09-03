@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "56277183954",
+    "project_id": "al-barakah-loyalty",
+    "storage_bucket": "al-barakah-loyalty.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:56277183954:android:c54a5c33b605a880ccac0b",
+        "android_client_info": {
+          "package_name": "com.albarakah.loyaltyapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "56277183954-ipcl9l5qgrophkib13g6ltck4rqmhjvf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.albarakah.loyaltyapp",
+            "certificate_hash": "ec2297100d2ca9625ef23868dcc3b956b645061c"
+          }
+        },
+        {
+          "client_id": "56277183954-6oknis8bhji6cijv2iokk9a6q98vhpt2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFVLlXaoihaZmNqvbrY32jVWkpGJTq5zs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "56277183954-6oknis8bhji6cijv2iokk9a6q98vhpt2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

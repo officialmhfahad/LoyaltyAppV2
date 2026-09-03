@@ -1,0 +1,26 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.2'
+        classpath 'com.google.gms:google-services:4.4.2'
+    }
+}
+
+ext {
+    // Bcore build.gradle এগুলো চাচ্ছিল, তাই define করে দিলাম
+    blackReflection = true
+    enableBlackReflection = true
+    blackReflectionVersion = "true"   // তোমার dependency আগেই core:true ছিল, তাই এটা রাখলাম
+}
+
+apply from: "variables.gradle"
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
