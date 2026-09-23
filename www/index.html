@@ -2024,6 +2024,42 @@ document.getElementById('dailyForm').addEventListener('submit', async (e) => {
     });
 
     // ============================================
+    // ২. স্টক ফর্ম হ্যান্ডলার (Stock Form Handler) - নতুন যোগ করা হলো
+    // ============================================
+    document.getElementById('stockForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const date = document.getElementById('stockDate').value;
+        const yards = parseFloat(document.getElementById('stockYards').value) || 0;
+        const note = document.getElementById('stockNote').value || '';
+
+        if (!date || yards <= 0) {
+            showToast("তারিখ এবং গজের পরিমাণ দিন!");
+            return;
+        }
+
+        try {
+            // স্টক কালেকশনে নতুন ডকুমেন্ট যোগ করা
+            await addDoc(collection(db, 'stock'), {
+                date: date,
+                yards: yards,
+                note: note,
+                timestamp: serverTimestamp()
+            });
+
+            showToast("স্টক সফলভাবে যোগ হয়েছে!");
+            e.target.reset();
+            
+            // স্টক ডাটা রিলোড করা
+            if (typeof loadStockData === 'function') {
+                loadStockData();
+            }
+        } catch(err) {
+            showToast("সমস্যা: " + err.message);
+            console.error("Stock add error:", err);
+        }
+    });
+
+    // ============================================
     // ৩. বাৎসরিক রিপোর্ট ফিক্স (Fixed Yearly Calculation)
     // ============================================
 // =========================================
@@ -2337,30 +2373,56 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
 
         pSnap.forEach(d => {
             const p = d.data();
-            const stock = parseFloat(p.currentStock || 0);
+            let stock = parseFloat(p.currentStock || 0);
             const brought = parseFloat(p.totalBrought || 0); // বা stock + sold
             const buyPrice = parseFloat(p.buyPrice || 0);
+            const unit = p.unit || 'goz'; // ডিফল্ট গজ
 
-            // যোগফল বের করা হচ্ছে
-            realStock += stock;
-            realTotalBrought += brought;
+            // ✅ Negative stock fix: negative হলে 0 ধরা হবে
+            if (stock < 0) {
+                console.log(`⚠️ NEGATIVE stock fixed - ${d.id}: ${stock} → 0`);
+                stock = 0;
+            }
 
-            // টাকার হিসাব
+            // ✅ ফিক্স: শুধুমাত্র গজ (yard) কাপড়ের হিসাব যোগ করা হবে, পিস (piece) বাদ দেওয়া হবে
+            if (unit === 'goz') {
+                realStock += stock;
+                realTotalBrought += brought;
+                console.log(`✅ Goz - ${d.id}: stock=${stock}, brought=${brought}`);
+            } else {
+                console.log(`❌ Piece - ${d.id}: stock=${stock} (NOT counted)`);
+            }
+
+            // টাকার হিসাব (সব products এর জন্য - piece + goz উভয়ই)
             currentAssetValue += (stock * buyPrice);
             totalInvested += (brought * buyPrice);
         });
+        
+        console.log('📊 Total realStock (গজ only):', realStock);
+        console.log('📊 Total realTotalBrought:', realTotalBrought);
+
+        // ✅ নতুন ফিক্স: স্টক কালেকশন থেকে চালান যোগ করা
+        let totalStockShipments = 0;
+        sSnap.forEach(d => {
+            totalStockShipments += parseFloat(d.data().yards || 0);
+        });
+
+        console.log('📦 Total Stock Shipments (স্টক হিস্ট্রি):', totalStockShipments);
+        console.log('📊 Products Total Brought (পণ্য থেকে):', realTotalBrought);
+        console.log('📉 Total Sold (বিক্রয়):', totalOut);
+        console.log('📊 Mojud = Stock History - Sold:', totalStockShipments - totalOut);
 
         // --- ফিক্স: যদি ডাটাবেসের স্টক কম থাকে, তবে ব্যালেন্স করা ---
         // (removed) no artificial stock adjustment
 
-        // ৪. ডিসপ্লে আপডেট (Product Based Logic)
-        // 'মোট কেনা' এখন আর শিপমেন্ট লিস্ট থেকে আসবে না, সরাসরি পণ্যের যোগফল দেখাবে
+        // ৪. ডিসপ্লে আপডেট (Hybrid Logic)
+        // 'মোট কেনা' = পণ্য page থেকে (শুধু গজ, পিস বাদ)
         animateCount('st-in', realTotalBrought, false, true);
 
         animateCount('st-sold', totalOut, false, true);
 
-        // 'মজুদ' এখন পণ্যের লাইভ স্টকের যোগফল
-        animateCount('st-bal', realStock, false, true);
+        // 'মজুদ' = স্টক হিস্ট্রি চালান - মোট বিক্রি
+        animateCount('st-bal', totalStockShipments - totalOut, false, true);
 
         // ৫. টাকার হিসাব আপডেট
         animateCount('st-value', currentAssetValue, true);
@@ -2377,13 +2439,27 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
              let totalInHistory = 0;
 
              sSnap.forEach(d => {
-                 arr.push(d.data());
+                 arr.push({id: d.id, ...d.data()});
                  totalInHistory += parseFloat(d.data().yards || 0);
              });
 
              arr.sort((a,b)=> new Date(b.date)-new Date(a.date));
              arr.forEach(s => {
-                html += `<div style="padding:12px; border-bottom:1px solid rgba(255,255,255,0.1);"><b>${s.date}</b>: <span style="color:var(--primary-solid)">+${s.yards} গজ</span> <br><small>${s.note||''}</small></div>`;
+                const noteText = (s.note||'').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                html += `<div style="padding:12px; border-bottom:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <b>${s.date}</b>: <span style="color:var(--primary-solid)">+${s.yards} গজ</span> 
+                        <br><small>${s.note||''}</small>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-update-sm stock-edit-btn" data-id="${s.id}" data-date="${s.date}" data-yards="${s.yards}" data-note="${noteText}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-update-sm stock-delete-btn" data-id="${s.id}" style="background:rgba(239, 68, 68, 0.2); color:#ef4444;">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
              });
 
              // স্টক লিস্টে দেখানো
@@ -2394,6 +2470,69 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
 
         }, 1500);
     }
+
+    // ============================================
+    // স্টক এন্ট্রি এডিট এবং ডিলিট ফাংশন (Stock Entry Edit & Delete)
+    // ============================================
+    // Event delegation for dynamically created buttons
+    document.addEventListener('click', async (e) => {
+        // Edit button click
+        if (e.target.closest('.stock-edit-btn')) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Edit button clicked!'); // Debug log
+            
+            const btn = e.target.closest('.stock-edit-btn');
+            const id = btn.dataset.id;
+            const date = btn.dataset.date;
+            const yards = btn.dataset.yards;
+            const note = btn.dataset.note.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+            
+            console.log('Data:', {id, date, yards, note}); // Debug log
+            
+            const newYards = prompt(`গজের পরিমাণ এডিট করুন:`, yards);
+            if (newYards === null) return;
+            
+            const newNote = prompt(`নোট এডিট করুন:`, note);
+            if (newNote === null) return;
+
+            try {
+                const stockRef = doc(db, 'stock', id);
+                await updateDoc(stockRef, {
+                    yards: parseFloat(newYards) || 0,
+                    note: newNote || '',
+                    updatedAt: serverTimestamp()
+                });
+                
+                showToast("স্টক আপডেট হয়েছে!");
+                loadStockData();
+            } catch(err) {
+                showToast("সমস্যা: " + err.message);
+                console.error("Stock update error:", err);
+            }
+        }
+        
+        // Delete button click
+        if (e.target.closest('.stock-delete-btn')) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Delete button clicked!'); // Debug log
+            
+            const btn = e.target.closest('.stock-delete-btn');
+            const id = btn.dataset.id;
+            
+            if (!confirm("এই স্টক এন্ট্রি ডিলিট করতে চান?")) return;
+
+            try {
+                await deleteDoc(doc(db, 'stock', id));
+                showToast("স্টক ডিলিট হয়েছে!");
+                loadStockData();
+            } catch(err) {
+                showToast("সমস্যা: " + err.message);
+                console.error("Stock delete error:", err);
+            }
+        }
+    });
 
     // --- মেম্বারশিপ লজিক (সম্পূর্ণ বিস্তারিত) ---
     window.searchUser = async () => {
