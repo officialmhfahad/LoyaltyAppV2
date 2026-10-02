@@ -296,6 +296,81 @@
                 }
                 .voice-icon:active { transform: translateY(-50%) scale(0.9); }
 
+                /* --- কাপড়ের নাম অটো-সাজেসন বক্স --- */
+                .suggest-box {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    margin-top: 6px;
+                    max-height: 240px;
+                    overflow-y: auto;
+                    background: #ffffff;
+                    color: #1a1a1a;
+                    border-radius: 14px;
+                    box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+                    z-index: 9999;
+                    padding: 6px;
+                    border: 1px solid rgba(0,137,123,0.25);
+                }
+                body.dark-mode .suggest-box {
+                    background: #1f2937;
+                    color: #e5e7eb;
+                    border-color: rgba(255,255,255,0.12);
+                }
+                .suggest-box .sg-head {
+                    font-size: 11px;
+                    padding: 6px 12px 4px;
+                    color: #6b7280;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .suggest-item {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 11px 12px;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    font-size: 15px;
+                    transition: background 0.12s;
+                }
+                .suggest-item:hover,
+                .suggest-item.sel {
+                    background: rgba(0,137,123,0.12);
+                }
+                body.dark-mode .suggest-item:hover,
+                body.dark-mode .suggest-item.sel {
+                    background: rgba(255,255,255,0.08);
+                }
+                .suggest-item .sg-unit {
+                    font-size: 11px;
+                    background: rgba(0,137,123,0.14);
+                    color: #00897B;
+                    padding: 2px 8px;
+                    border-radius: 8px;
+                    white-space: nowrap;
+                }
+                body.dark-mode .suggest-item .sg-unit {
+                    background: rgba(255,255,255,0.1);
+                    color: #80CBC4;
+                }
+                .suggest-empty {
+                    padding: 14px 12px;
+                    font-size: 14px;
+                    color: #b91c1c;
+                    line-height: 1.5;
+                }
+                .suggest-empty b { color: #b91c1c; }
+                .suggest-empty .sg-alt {
+                    margin-top: 8px;
+                    font-size: 13px;
+                    color: #6b7280;
+                }
+                .suggest-item.bad-match { color: #b91c1c; }
+
                 input, select, textarea {
                     width: 100%;
                     padding: 18px 20px;
@@ -1156,10 +1231,10 @@
             </div>
 
             <label>কাপড়ের নাম / বিবরণ</label>
-            <div class="input-group">
-                <input type="text" id="itemName" list="prodList" placeholder="কাপড়ের নাম লিখুন..." autocomplete="off">
-                <datalist id="prodList"></datalist>
+            <div class="input-group" style="position:relative;">
+                <input type="text" id="itemName" placeholder="কাপড়ের নাম লিখুন বা বাছুন..." autocomplete="off" style="width:100%;">
                 <i class="fas fa-microphone voice-icon" onclick="startVoice('itemName')"></i>
+                <div id="itemSuggest" class="suggest-box" style="display:none;"></div>
             </div>
 
             <div id="retailInputs">
@@ -1619,11 +1694,19 @@ function normalizeProductName(name){
             const recognition = new webkitSpeechRecognition();
             recognition.lang = 'bn-BD';
             recognition.start();
-            recognition.onresult = (e) => { document.getElementById(id).value = e.results[0][0].transcript; };
+            recognition.onresult = (e) => {
+                document.getElementById(id).value = e.results[0][0].transcript;
+                // ভয়েস থেকে আসা নাম সাজেসনে দেখাই যাতে ম্যাচ করার সুযোগ থাকে
+                const el = document.getElementById(id);
+                if (el && el.id === 'itemName') el.dispatchEvent(new Event('input'));
+            };
         } else { alert("Voice input not supported in this browser (Try Chrome)."); }
     };
 
     // --- অ্যানিমেশন কাউন্টার ---
+    // --- সংখ্যা রাউন্ডিং (floating point dust যেমন 612.3100000000001 দূর করতে) ---
+    const roundQty = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+
     function animateCount(id, end, isC=false, isG=false) {
         const obj = document.getElementById(id);
         if(!obj) return;
@@ -1640,9 +1723,10 @@ function normalizeProductName(name){
 
             if (progress < 1) window.requestAnimationFrame(step);
             else {
-                 if(isC) obj.innerText = "৳" + end.toLocaleString();
-                 else if(isG) obj.innerText = end.toFixed(2) + " গজ";
-                 else obj.innerText = end.toLocaleString();
+                 const finalEnd = roundQty(end);
+                 if(isC) obj.innerText = "৳" + finalEnd.toLocaleString();
+                 else if(isG) obj.innerText = finalEnd.toFixed(2) + " গজ";
+                 else obj.innerText = finalEnd.toLocaleString();
             }
         }
         window.requestAnimationFrame(step);
@@ -1813,6 +1897,20 @@ function normalizeProductName(name){
             totalBrought: stock,
             updatedAt: serverTimestamp()
         });
+
+        // স্টক হিস্ট্রিতেও চালান হিসেবে লেখা, যাতে ড্যাশবোর্ড ও হিস্ট্রি সবসময় মেলে
+        if (stock > 0) {
+            const _now = new Date();
+            const _today = new Date(_now - _now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+            await addDoc(collection(db, 'stock'), {
+                date: _today,
+                yards: stock,
+                unit: unit, // গজ নাকি পিস — ড্যাশবোর্ড শুধু গজ গণনা করবে
+                note: `প্রাথমিক স্টক (${name})`,
+                timestamp: serverTimestamp()
+            });
+        }
+
         showSuccess();
         e.target.reset();
         loadProducts();
@@ -1820,15 +1918,167 @@ function normalizeProductName(name){
 });
 
     // একটি গ্লোবাল ভেরিয়েবল রাখছি যাতে হিসাবের সময় পিস না গজ তা সহজে বের করা যায়
-window.allProductsInfo = {};
+    window.allProductsInfo = {};
 
-async function loadProducts() {
+    // ====================================================
+    // কাপড়ের নাম অটো-সাজেসন সিস্টেম
+    // ====================================================
+    window.suggestIndex = [];      // {name, unit, sold} ফ্রিকোয়েন্সি অনুযায়ী সাজানো
+    let sgSelectedIndex = -1;
+
+    // প্রোডাক্ট লোড হলে সাজেসন ইনডেক্স তৈরি — বেশি বিকৃত কাপড় উপরে থাকবে
+    window.buildSuggestionIndex = () => {
+        const arr = [];
+        for (const [name, p] of Object.entries(window.allProducts || {})) {
+            arr.push({
+                name,
+                unit: (p.unit === 'piece') ? 'পিস' : 'গজ',
+                sold: parseFloat(p.totalSold || 0)
+            });
+        }
+        // ফ্রিকোয়েন্সি: যে কাপড় বেশি বিক্রি হয়েছে সেটা উপরে
+        arr.sort((a, b) => b.sold - a.sold);
+        window.suggestIndex = arr;
+    };
+
+    const sgInput = document.getElementById('itemName');
+    const sgBox = document.getElementById('itemSuggest');
+
+    // ইনপুট ভ্যালিডেশন হেল্পার — নাম ঠিক আছে কিনা চেক করে
+    window.isValidItemName = (name) => {
+        if (!name || !name.trim()) return true; // খালি থাকলে পুরোনো লজিক কাজ করবে
+        const key = normalizeProductName(name);
+        return !!(window.allProductsNorm && window.allProductsNorm[key]);
+    };
+
+    function sgRender(items, query, isBad) {
+        if (!items.length && !isBad) { sgHide(); return; }
+        let html = '';
+        if (isBad) {
+            html += `<div class="suggest-empty">
+                <b>⚠️ "${query}" নামের কোনো কাপড় লিস্টে নেই!</b><br>
+                সেভ করার আগে নিচে থেকে সঠিক নাম বেছে নিন:
+                <div class="sg-alt">অথবা পণ্য পেজে গিয়ে নতুন কাপড় যোগ করুন।</div>
+            </div>`;
+        } else if (query) {
+            html += `<div class="sg-head">"${query}" এর সাথে মিলে এমন কাপড়</div>`;
+        } else {
+            html += `<div class="sg-head">বেশি বিক্রি হওয়া কাপড়</div>`;
+        }
+        items.forEach((it, i) => {
+            html += `<div class="suggest-item ${i === sgSelectedIndex ? 'sel' : ''}" data-name="${it.name.replace(/"/g, '&quot;')}">
+                <span>${it.name}</span>
+                <span class="sg-unit">${it.unit}</span>
+            </div>`;
+        });
+        sgBox.innerHTML = html;
+        sgBox.style.display = 'block';
+    }
+
+    function sgHide() {
+        sgBox.style.display = 'none';
+        sgSelectedIndex = -1;
+    }
+
+    // ক্লিক করলে সব কাপড় দেখাবে (ফ্রিকোয়েন্সি অনুযায়ী সাজানো)
+    if (sgInput) {
+        sgInput.addEventListener('focus', () => {
+            sgSelectedIndex = -1;
+            if (!window.suggestIndex.length && typeof window.allProducts === 'object') {
+                window.buildSuggestionIndex();
+            }
+            const q = sgInput.value.trim();
+            if (!q) {
+                // খালি থাকলে শীর্ষ ৮টি জনপ্রিয় কাপড়
+                sgRender(window.suggestIndex.slice(0, 8), '', false);
+            } else {
+                sgFilter(q);
+            }
+        });
+
+        sgInput.addEventListener('input', () => {
+            sgSelectedIndex = -1;
+            const q = sgInput.value.trim();
+            if (!q) {
+                sgRender(window.suggestIndex.slice(0, 8), '', false);
+                return;
+            }
+            sgFilter(q);
+        });
+
+        // ক্লিক করে সিলেক্ট করা
+        sgBox.addEventListener('click', (e) => {
+            const item = e.target.closest('.suggest-item');
+            if (!item) return;
+            sgInput.value = item.dataset.name.replace(/&quot;/g, '"');
+            sgHide();
+            // ইউনিট অনুযায়ী লেবেল আপডেট
+            sgInput.dispatchEvent(new Event('input'));
+            // কোয়ান্টিটি বক্সে ফোকাস
+            const qEl = document.getElementById('todayRetailGoz') || document.getElementById('todayWholesaleGoz');
+            if (qEl) qEl.focus();
+        });
+
+        // কীবোর্ড নেভিগেশন: ↑↓ দিয়ে বেছে নেওয়া, Enter দিয়ে সিলেক্ট
+        sgInput.addEventListener('keydown', (e) => {
+            const visible = sgBox.style.display === 'block';
+            const items = sgBox.querySelectorAll('.suggest-item');
+            if (!visible || !items.length) return;
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                sgSelectedIndex = (sgSelectedIndex + 1) % items.length;
+                items.forEach((el, i) => el.classList.toggle('sel', i === sgSelectedIndex));
+                items[sgSelectedIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                sgSelectedIndex = (sgSelectedIndex - 1 + items.length) % items.length;
+                items.forEach((el, i) => el.classList.toggle('sel', i === sgSelectedIndex));
+                items[sgSelectedIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (sgSelectedIndex >= 0) {
+                    sgInput.value = items[sgSelectedIndex].dataset.name.replace(/&quot;/g, '"');
+                    sgHide();
+                    sgInput.dispatchEvent(new Event('input'));
+                    const qEl = document.getElementById('todayRetailGoz') || document.getElementById('todayWholesaleGoz');
+                    if (qEl) qEl.focus();
+                }
+            } else if (e.key === 'Escape') {
+                sgHide();
+            }
+        });
+
+        // বাইরে ক্লিক করলে বক্স বন্ধ
+        document.addEventListener('click', (e) => {
+            if (!sgBox.contains(e.target) && e.target !== sgInput) sgHide();
+        });
+    }
+
+    // টাইপ করলে ফিল্টার করা (ম্যাচ না হলে বিকল্প দেখানো)
+    function sgFilter(query) {
+        const q = normalizeProductName(query);
+        // শুরুতে ম্যাচ, তারপর যেকোনো জায়গায় ম্যাচ
+        const starts = [], contains = [];
+        for (const it of window.suggestIndex) {
+            const n = normalizeProductName(it.name);
+            if (n.startsWith(q)) starts.push(it);
+            else if (n.includes(q)) contains.push(it);
+        }
+        const matched = starts.concat(contains);
+        if (matched.length) {
+            sgRender(matched.slice(0, 10), query, false);
+        } else {
+            // কোনো ম্যাচ নেই — বিকল্প হিসেবে জনপ্রিয়গুলো দেখাই
+            sgRender(window.suggestIndex.slice(0, 6), query, true);
+        }
+    }
+
+    async function loadProducts() {
         try {
             const snap = await getDocs(collection(db, 'products'));
             let html = "";
-            let listHtml = "";
             window.allProducts = {}; // ডাটা রিসেট
-window.allProductsNorm = {};
+            window.allProductsNorm = {};
 
             snap.forEach(d => {
                 const p = d.data();
@@ -1836,14 +2086,12 @@ window.allProductsNorm = {};
                 window.allProducts[id] = p; // গ্লোবালি সেভ করে রাখছি হিসাবের জন্য
                 window.allProductsNorm[normalizeProductName(id)] = { ...p, id };
 
-                listHtml += `<option value="${id}">`;
-
                 const unitText = (p.unit === 'piece') ? 'পিস' : 'গজ';
 
                 // --- স্টক ক্যালকুলেশন ---
-                const total = p.totalBrought || p.currentStock || 100;
-                const current = p.currentStock || 0;
-                const totalSold = p.totalSold || 0; // মোট বিক্রির ডাটা নিলাম
+                const total = roundQty(p.totalBrought || p.currentStock || 100);
+                const current = roundQty(p.currentStock || 0);
+                const totalSold = roundQty(p.totalSold || 0); // মোট বিক্রির ডাটা নিলাম
 
                 let percent = (current / total) * 100;
                 if(percent > 100) percent = 100;
@@ -1856,7 +2104,7 @@ window.allProductsNorm = {};
                 // শুধু পিস হলে বিক্রির ট্যাগ দেখানোর লজিক
                 let soldTagHtml = "";
                 if (p.unit === 'piece') {
-                    soldTagHtml = `<span class="price-tag" style="background:rgba(0, 137, 123, 0.1); color:var(--primary-solid); border: 1px dashed var(--primary-solid);">বিক্রি: ${totalSold} পিস</span>`;
+                    soldTagHtml = `<span class="price-tag" style="background:rgba(0, 137, 123, 0.1); color:var(--primary-solid); border: 1px dashed var(--primary-solid);">বিক্রি: ${roundQty(totalSold)} পিস</span>`;
                 }
 
                 html += `
@@ -1896,7 +2144,9 @@ window.allProductsNorm = {};
             });
 
             document.getElementById('productListArea').innerHTML = html;
-            document.getElementById('prodList').innerHTML = listHtml;
+
+            // সাজেসন বক্সের জন্য ফ্রিকোয়েন্সি হিসাব রিফ্রেশ করা
+            if (typeof window.buildSuggestionIndex === 'function') window.buildSuggestionIndex();
 
         } catch (error) {
             console.error("Error loading products:", error);
@@ -1915,6 +2165,18 @@ window.allProductsNorm = {};
                     currentStock: (d.currentStock||0) + parseFloat(amt),
                     totalBrought: (d.totalBrought||0) + parseFloat(amt)
                 });
+
+                // স্টক হিস্ট্রিতেও চালান হিসেবে লেখা, যাতে ড্যাশবোর্ড ও হিস্ট্রি সবসময় মেলে
+                const _now = new Date();
+                const _today = new Date(_now - _now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+                await addDoc(collection(db, 'stock'), {
+                    date: _today,
+                    yards: parseFloat(amt),
+                    unit: (d.unit || 'goz'), // গজ নাকি পিস — ড্যাশবোর্ড শুধু গজ গণনা করবে
+                    note: `${id} - স্টক যোগ`,
+                    timestamp: serverTimestamp()
+                });
+
                 showToast("স্টক আপডেট হয়েছে");
                 loadProducts();
             }
@@ -1948,6 +2210,17 @@ document.getElementById('dailyForm').addEventListener('submit', async (e) => {
         const wholesaleGoz = parseFloat(document.getElementById('todayWholesaleGoz').value) || 0;
         const wTk = parseFloat(document.getElementById('todayWholesaleMoney').value) || 0;
 
+        // 🛡️ ভ্যালিডেশন: নাম লিখেছে কিন্তু লিস্টের সাথে ম্যাচ করেনি — সেভ আটকানো
+        if (itemName && itemName.trim() && !window.isValidItemName(itemName)) {
+            showToast(`⚠️ "${itemName}" নামের কাপড় লিস্টে নেই! সঠিক নাম বেছে নিন।`);
+            const q = document.getElementById('itemName');
+            q.focus();
+            q.select();
+            // সাজেসন বক্সে বিকল্প দেখাই
+            q.dispatchEvent(new Event('focus'));
+            return;
+        }
+
         const pKey = normalizeProductName(itemName);
     const pData = window.allProducts[itemName] || window.allProductsNorm[pKey] || {};
         const unitType = pData.unit || 'goz';
@@ -1964,9 +2237,15 @@ document.getElementById('dailyForm').addEventListener('submit', async (e) => {
                     const currentStock = pSnap.data().currentStock || 0;
                     const oldTotalSold = pSnap.data().totalSold || 0; // আগের বিক্রি করা পিস
 
+                    // 🛡️ মজুদের চেয়ে বেশি বিক্রি হলে সতর্ক করা (নেগেটিভ স্টক রোধ)
+                    if (totalQty > currentStock) {
+                        const unitLbl = (pSnap.data().unit === 'piece') ? 'পিস' : 'গজ';
+                        showToast(`⚠️ ${itemName} এর মজুদ শুধু ${roundQty(currentStock)} ${unitLbl}! বিক্রি করছেন ${roundQty(totalQty)} ${unitLbl}।`);
+                    }
+
                     await updateDoc(productRef, {
-                        currentStock: currentStock - totalQty,
-                        totalSold: oldTotalSold + totalQty // নতুন বিক্রি অ্যাড করে দিলাম
+                        currentStock: roundQty(currentStock - totalQty),
+                        totalSold: roundQty(oldTotalSold + totalQty) // নতুন বিক্রি অ্যাড করে দিলাম
                     });
                 }
             }
@@ -2166,7 +2445,7 @@ async function loadDailyData() {
     });
     updateChart(chartLabels, chartData);
 
-    document.getElementById('m-goz-breakdown').innerHTML = `<span style="color:var(--text-muted)">(খু: ${tRG.toFixed(1)} | পা: ${tWG.toFixed(1)})</span>`;
+    document.getElementById('m-goz-breakdown').innerHTML = `<span style="color:var(--text-muted)">(খু: ${roundQty(tRG).toFixed(1)} | পা: ${roundQty(tWG).toFixed(1)})</span>`;
     document.getElementById('m-sell-breakdown').innerHTML = `<span style="color:var(--text-muted)">(খু: ৳${tSellR.toLocaleString()} | পা: ৳${tSellW.toLocaleString()} )</span>`;
 }
 
@@ -2215,7 +2494,7 @@ window.loadYearlyData = async () => {
     animateCount('life-exp', lifeExp, true);
     animateCount('life-profit', lifeProf, true);
 
-    document.getElementById('life-goz-breakdown').innerHTML = `(খু: ${lR.toFixed(1)} | পা: ${lW.toFixed(1)})`;
+    document.getElementById('life-goz-breakdown').innerHTML = `(খু: ${roundQty(lR).toFixed(1)} | পা: ${roundQty(lW).toFixed(1)})`;
     document.getElementById('life-money-breakdown').innerHTML = `(খু: ৳${lsR.toLocaleString()} | পা: ৳${lsW.toLocaleString()})`;
 
     let html = "";
@@ -2404,7 +2683,10 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
         // ✅ নতুন ফিক্স: স্টক কালেকশন থেকে চালান যোগ করা
         let totalStockShipments = 0;
         sSnap.forEach(d => {
-            totalStockShipments += parseFloat(d.data().yards || 0);
+            // শুধু গজ (goz) চালানই ড্যাশবোর্ডে গণনা হবে, পিস (piece) বাদ — products লজিকের সাথে মিল রাখতে
+            if ((d.data().unit || 'goz') === 'goz') {
+                totalStockShipments += parseFloat(d.data().yards || 0);
+            }
         });
 
         console.log('📦 Total Stock Shipments (স্টক হিস্ট্রি):', totalStockShipments);
@@ -2416,8 +2698,8 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
         // (removed) no artificial stock adjustment
 
         // ৪. ডিসপ্লে আপডেট (Hybrid Logic)
-        // 'মোট কেনা' = পণ্য page থেকে (শুধু গজ, পিস বাদ)
-        animateCount('st-in', realTotalBrought, false, true);
+        // 'মোট কেনা' = স্টক হিস্ট্রির সব চালানের যোগফল (products.totalBrought নয়, কারণ সাথে হিস্ট্রি মেলে না)
+        animateCount('st-in', totalStockShipments, false, true);
 
         animateCount('st-sold', totalOut, false, true);
 
@@ -2443,12 +2725,13 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
                  totalInHistory += parseFloat(d.data().yards || 0);
              });
 
-             arr.sort((a,b)=> new Date(b.date)-new Date(a.date));
-             arr.forEach(s => {
-                const noteText = (s.note||'').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                html += `<div style="padding:12px; border-bottom:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <b>${s.date}</b>: <span style="color:var(--primary-solid)">+${s.yards} গজ</span> 
+              arr.sort((a,b)=> new Date(b.date)-new Date(a.date));
+              arr.forEach(s => {
+                 const noteText = (s.note||'').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                 const unitText = (s.unit === 'piece') ? 'পিস' : 'গজ';
+                 html += `<div style="padding:12px; border-bottom:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
+                     <div>
+                        <b>${s.date}</b>: <span style="color:var(--primary-solid)">+${s.yards} ${unitText}</span> 
                         <br><small>${s.note||''}</small>
                     </div>
                     <div style="display:flex; gap:8px;">
@@ -2466,7 +2749,7 @@ await updateStockDailySnapshot(db, window.currentEditId || id);
              document.getElementById('stockList').innerHTML = html;
 
              // ব্রেকডাউন আপডেট
-             document.getElementById('st-sold-breakdown').innerHTML = `(খু: ${outR.toFixed(1)} | পা: ${outW.toFixed(1)})`;
+              document.getElementById('st-sold-breakdown').innerHTML = `(খু: ${roundQty(outR).toFixed(1)} | পা: ${roundQty(outW).toFixed(1)})`;
 
         }, 1500);
     }
