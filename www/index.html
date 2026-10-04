@@ -1012,6 +1012,7 @@
         .kpiValue{margin-top:6px;font-size:22px;font-weight:800;letter-spacing:.2px;}
         .kpiValue.green{color:#1b8b55;}
         .kpiValue.red{color:#d11f1f;}
+        .kpiSub{margin-top:5px;font-size:11px;color:var(--text-muted);line-height:1.35;}
 
         /* ===== Visual Upgrade Pack (2026-03-07) ===== */
         :root{
@@ -1389,7 +1390,7 @@
         <h3 style="color:var(--text-color);">বছরের রিপোর্ট</h3>
         <div style="overflow-x:auto;">
             <table class="custom-table">
-                <thead><tr><th>বছর</th><th>বিক্রি</th><th>খরচ</th><th>লাভ</th></tr></thead>
+                <thead><tr><th>বছর</th><th>বিক্রি</th><th>গজ বিক্রি</th><th>খরচ</th><th>লাভ</th></tr></thead>
                 <tbody id="yearlyBody"></tbody>
             </table>
         </div>
@@ -1428,6 +1429,26 @@
         <div class="kpiCard">
             <div class="kpiLabel">গড় বিক্রি/দিন</div>
             <div id="kpiAvgPerDay" class="kpiValue">৳0</div>
+        </div>
+        <div class="kpiCard">
+            <div class="kpiLabel">মোট গজ বিক্রি</div>
+            <div id="kpiGoz" class="kpiValue">0 গজ</div>
+            <div id="kpiGozBreak" class="kpiSub"></div>
+        </div>
+        <div class="kpiCard">
+            <div class="kpiLabel">খুচরা গজ</div>
+            <div id="kpiGozRetail" class="kpiValue">0 গজ</div>
+            <div class="kpiSub">খুচরা বিক্রিত কাপড়</div>
+        </div>
+        <div class="kpiCard">
+            <div class="kpiLabel">পাইকারি গজ</div>
+            <div id="kpiGozWholesale" class="kpiValue">0 গজ</div>
+            <div class="kpiSub">পাইকারি বিক্রিত কাপড়</div>
+        </div>
+        <div class="kpiCard">
+            <div class="kpiLabel">মোট পিস বিক্রি</div>
+            <div id="kpiPiece" class="kpiValue">0 পিস</div>
+            <div class="kpiSub">থ্রি পিস / পাঞ্জাবি ইত্যাদি</div>
         </div>
     </div>
 
@@ -1690,9 +1711,17 @@ function normalizeProductName(name){
 
     // --- ভয়েস ইনপুট (সম্পূর্ণ) ---
     window.startVoice = (id) => {
-        if ('webkitSpeechRecognition' in window) {
-            const recognition = new webkitSpeechRecognition();
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SR();
             recognition.lang = 'bn-BD';
+            recognition.onerror = (e) => {
+                if(e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+                    showToast("মাইক্রোফোন পারমিশন লাগবে! অ্যাপ সেটিংসে গিয়ে মাইক্রোফোন অন করুন।");
+                } else if(e.error !== 'aborted' && e.error !== 'no-speech'){
+                    showToast("ভয়েস ইনপুটে সমস্যা: " + e.error);
+                }
+            };
             recognition.start();
             recognition.onresult = (e) => {
                 document.getElementById(id).value = e.results[0][0].transcript;
@@ -1776,6 +1805,8 @@ function normalizeProductName(name){
         if(screenName === 'stock') loadStockData();
         if(screenName === 'yearly') {
             loadYearlyData();
+            // KPI + ফিল্টার অনুযায়ী রিপোর্ট লোড
+            if (typeof window.refreshReport === 'function') window.refreshReport();
             // charts on report/yearly screen
             if (typeof window.renderSalesChart7Days === 'function') window.renderSalesChart7Days();
             if (typeof window.renderMonthlyWeekChart === 'function') window.renderMonthlyWeekChart();
@@ -1963,7 +1994,7 @@ function normalizeProductName(name){
         } else if (query) {
             html += `<div class="sg-head">"${query}" এর সাথে মিলে এমন কাপড়</div>`;
         } else {
-            html += `<div class="sg-head">বেশি বিক্রি হওয়া কাপড়</div>`;
+            html += `<div class="sg-head">সব কাপড় (${items.length}টি) — বেশি বিক্রি হওয়া উপরে</div>`;
         }
         items.forEach((it, i) => {
             html += `<div class="suggest-item ${i === sgSelectedIndex ? 'sel' : ''}" data-name="${it.name.replace(/"/g, '&quot;')}">
@@ -1989,8 +2020,8 @@ function normalizeProductName(name){
             }
             const q = sgInput.value.trim();
             if (!q) {
-                // খালি থাকলে শীর্ষ ৮টি জনপ্রিয় কাপড়
-                sgRender(window.suggestIndex.slice(0, 8), '', false);
+                // খালি থাকলে সব কাপড় দেখাবে (বেশি বিক্রি হওয়া উপরে থাকবে)
+                sgRender(window.suggestIndex, '', false);
             } else {
                 sgFilter(q);
             }
@@ -2000,7 +2031,7 @@ function normalizeProductName(name){
             sgSelectedIndex = -1;
             const q = sgInput.value.trim();
             if (!q) {
-                sgRender(window.suggestIndex.slice(0, 8), '', false);
+                sgRender(window.suggestIndex, '', false);
                 return;
             }
             sgFilter(q);
@@ -2066,10 +2097,10 @@ function normalizeProductName(name){
         }
         const matched = starts.concat(contains);
         if (matched.length) {
-            sgRender(matched.slice(0, 10), query, false);
+            sgRender(matched, query, false);
         } else {
-            // কোনো ম্যাচ নেই — বিকল্প হিসেবে জনপ্রিয়গুলো দেখাই
-            sgRender(window.suggestIndex.slice(0, 6), query, true);
+            // কোনো ম্যাচ নেই — বিকল্প হিসেবে সব কাপড় দেখাই
+            sgRender(window.suggestIndex, query, true);
         }
     }
 
@@ -2468,10 +2499,11 @@ window.loadYearlyData = async () => {
         const pr = (data.profit || 0);
         const ex = (data.expense || 0);
 
-        if (!yData[y]) yData[y] = { sell: 0, profit: 0, expense: 0 };
+        if (!yData[y]) yData[y] = { sell: 0, profit: 0, expense: 0, goz: 0 };
         yData[y].sell += (rS + wS);
         yData[y].profit += pr;
         yData[y].expense += ex;
+        yData[y].goz += (rG + wG); // শুধু গজ (পিস নেই)
 
         lifeSell += (rS + wS);
         lifeGoz += (rG + wG);
@@ -2499,7 +2531,11 @@ window.loadYearlyData = async () => {
 
     let html = "";
     Object.keys(yData).sort().reverse().forEach(y => {
-        html += `<tr><td>${y}</td><td>৳${yData[y].sell.toLocaleString()}</td><td style="color:#ef4444;">৳${yData[y].expense.toLocaleString()}</td><td style="color:#10b981;">৳${yData[y].profit.toLocaleString()}</td></tr>`;
+        // --- ডিসেম্বর ২০২৫ ফিক্স (ড্যাশবোর্ডের সাথে মিল রাখা হয়েছে) ---
+        let yGoz = yData[y].goz;
+        if(y === '2025') yGoz = yGoz - 657.65;
+        const gozCell = `<td style="color:var(--primary-solid); white-space:nowrap;">${roundQty(Math.max(0, yGoz)).toLocaleString("en-US")} গজ</td>`;
+        html += `<tr><td>${y}</td><td>৳${yData[y].sell.toLocaleString()}</td>${gozCell}<td style="color:#ef4444;">৳${yData[y].expense.toLocaleString()}</td><td style="color:#10b981;">৳${yData[y].profit.toLocaleString()}</td></tr>`;
     });
     document.getElementById('yearlyBody').innerHTML = html;
 };
@@ -3054,10 +3090,25 @@ function getRangeForYearMonth(year, monthValue){
   const m = Number(monthValue) - 1;
   return { start: new Date(y,m,1), end: new Date(y,m+1,1) };
 }
+// itemsLog থেকে শুধু পিস গুনে বের করে (গজ বাদ)
+// ফরম্যাট: "নাম (5 পিস - ৳1500) || নাম২ (3 গজ - ৳900)"
+function countPiecesFromItemsLog(log){
+  const parts = String(log || "").split(/\|\||\n/);
+  let pieces = 0;
+  for(const p of parts){
+    const m = p.match(/\(\s*([\d.]+)\s*(পিস|গজ)\s*-/);
+    if(m && m[2] === "পিস") pieces += (parseFloat(m[1]) || 0);
+  }
+  return pieces;
+}
+function bnGoz(n){
+  return roundQty(Math.max(0, n)).toLocaleString("en-US") + " গজ";
+}
 async function updateKPIs(selectedYear, selectedMonthValue){
   const docs = await fetchDailySalesDocsCached();
   const { start, end } = getRangeForYearMonth(selectedYear, selectedMonthValue);
   let sell=0, expense=0, profit=0, dayCount=0;
+  let goz=0, rGoz=0, wGoz=0, pieces=0;
   for(const item of docs){
     const dt = parseDocDateId(item.id);
     if(!dt) continue;
@@ -3067,8 +3118,22 @@ async function updateKPIs(selectedYear, selectedMonthValue){
       expense += nums.expense;
       profit += nums.profit;
       dayCount += 1;
+
+      // গজ হিসাব (rGoz/wGoz তে শুধু গজ থাকে, পিস থাকে না)
+      const r = Number(item.data?.rGoz ?? 0);
+      const w = Number(item.data?.wGoz ?? 0);
+      rGoz += r; wGoz += w; goz += (r + w);
+
+      // পিস হিসাব itemsLog থেকে
+      pieces += countPiecesFromItemsLog(item.data?.itemsLog);
     }
   }
+
+  // --- ডিসেম্বর ২০২৫ ফিক্স (ড্যাশবোর্ডের সাথে মিল রাখা হয়েছে) ---
+  const yNum = Number(selectedYear);
+  const rangeHasDec2025 = (yNum === 2025) && (selectedMonthValue === "all" || Number(selectedMonthValue) === 12);
+  if(rangeHasDec2025){ goz -= 657.65; rGoz -= 657.65; }
+
   const avg = dayCount ? (sell / dayCount) : 0;
   const elSell = document.getElementById("kpiSell");
   const elExp  = document.getElementById("kpiExpense");
@@ -3078,6 +3143,18 @@ async function updateKPIs(selectedYear, selectedMonthValue){
   if(elExp)  elExp.textContent  = bnMoney(expense);
   if(elProf) elProf.textContent = bnMoney(profit);
   if(elAvg)  elAvg.textContent  = bnMoney(Math.round(avg));
+
+  // --- নতুন KPI: গজ (মোট/খুচরা/পাইকারি) ও পিস ---
+  const elGoz      = document.getElementById("kpiGoz");
+  const elGozBreak = document.getElementById("kpiGozBreak");
+  const elGozR     = document.getElementById("kpiGozRetail");
+  const elGozW     = document.getElementById("kpiGozWholesale");
+  const elPiece    = document.getElementById("kpiPiece");
+  if(elGoz)  elGoz.textContent  = bnGoz(goz);
+  if(elGozBreak) elGozBreak.innerHTML = `<span style="color:var(--text-muted)">(খু: ${roundQty(Math.max(0,rGoz)).toFixed(1)} | পা: ${roundQty(Math.max(0,wGoz)).toFixed(1)})</span>`;
+  if(elGozR) elGozR.textContent = bnGoz(rGoz);
+  if(elGozW) elGozW.textContent = bnGoz(wGoz);
+  if(elPiece) elPiece.textContent = roundQty(Math.max(0, pieces)).toLocaleString("en-US") + " পিস";
 }
 function initReportFilters(){
   const yearSel = document.getElementById("reportYearSelect");
